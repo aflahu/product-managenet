@@ -1,0 +1,10 @@
+services:
+  apps-project-name:
+    image: image-name
+    container_name: cont-project-name
+    command: ["java","-jar","/app/project-name.jar"]
+    restart: always
+    ports:
+      - '8080'
+    network_mode: network-name
+    working_dir: /app

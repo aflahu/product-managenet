@@ -1,0 +1,90 @@
+stages:
+  ### build
+  - devl-compile
+  ### build
+  - devl-build
+  ### deploy
+  - devl-deploy
+
+variables:
+  CI_REGISTRY_IMAGE: $CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
+  DEVL_NETWORK: "greenspark-ai-network"
+  JAR_NAME: "registration-management-0.0.1.jar"
+  INT_PORT: "8080"
+  EXT_PORT: "8030"
+
+###############
+### COMPILE ###
+###############
+## devl
+devl-compile:
+  stage: devl-compile
+  image: maven:latest
+  environment: development
+  script:
+    - chmod +x ./mvnw
+    - ./mvnw clean install -DskipTests -s ci_settings.xml -Dmaven.repo.local=/app/.m2/repository
+  artifacts:
+    when: always
+    name: devl-registration-management
+    paths:
+      - target/$JAR_NAME
+    expire_in: 1 week
+  only:
+    refs:
+      - devl
+  tags:
+    - greenspark-ai-devl-docker
+
+
+#############
+### BUILD ###
+#############
+## devl
+devl-build:
+  stage: devl-build
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    CI_BUILD_IMAGE: $CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t ${CI_BUILD_IMAGE}:$CI_COMMIT_SHORT_SHA -f Dockerfile .
+    - docker push ${CI_BUILD_IMAGE}:$CI_COMMIT_SHORT_SHA
+    - docker tag ${CI_BUILD_IMAGE}:$CI_COMMIT_SHORT_SHA ${CI_BUILD_IMAGE}:devl
+    - docker push ${CI_BUILD_IMAGE}:devl
+  only:
+    refs:
+      - devl
+  dependencies:
+    - devl-compile
+  tags:
+    - greenspark-ai-devl-docker
+
+
+##############
+### DEPLOY ###
+##############
+## devl
+devl-deploy:
+  stage: devl-deploy
+  script:
+    - docker compose -p devl-$CI_PROJECT_NAME down --rmi all
+    - docker system prune -f
+    - sed -i "s/apps-project-name/devl-${CI_PROJECT_NAME}/g" "docker-compose.yaml"
+    - sed -i "s/cont-project-name/devl-${CI_PROJECT_NAME}/g" "docker-compose.yaml"
+    - sed -i "s/image-name/registry.gitlab.com\/appfuxion-my\/greenspark.ai\/backend\/$CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA/g" "docker-compose.yaml"
+    - sed -i "s/network-name/${DEVL_NETWORK}/g" "docker-compose.yaml"
+    - sed -i "s/project-name.jar/${CI_PROJECT_NAME}.jar/g" "docker-compose.yaml"
+    - sed -i "s/8080/$EXT_PORT:$INT_PORT/g" "docker-compose.yaml"
+    - docker compose -p devl-$CI_PROJECT_NAME up -d --no-build
+  only:
+    refs:
+      - devl
+  dependencies:
+    - devl-compile
+  tags:
+    - greenspark-ai-devl-shell
+    
